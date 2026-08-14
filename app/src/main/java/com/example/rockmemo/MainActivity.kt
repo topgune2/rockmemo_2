@@ -3,7 +3,6 @@ package com.example.rockmemo
 import android.content.Intent
 import android.os.Bundle
 import android.text.InputType
-import android.widget.ArrayAdapter
 import android.widget.EditText
 import android.widget.ListView
 import android.widget.TextView
@@ -22,7 +21,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var notesListView: ListView
     private lateinit var addNoteButton: FloatingActionButton
     private val noteEntries = mutableListOf<Note>()
-    private lateinit var adapter: ArrayAdapter<String>
+    private lateinit var adapter: NoteListAdapter
+    private var promptInProgress = false
 
     companion object {
         const val EXTRA_NOTE_ID = "note_id"
@@ -40,7 +40,7 @@ class MainActivity : AppCompatActivity() {
         val versionName = "1.1"
         versionText.text = "Version $versionName"
 
-        adapter = ArrayAdapter(this, R.layout.note_list_item, mutableListOf())
+        adapter = NoteListAdapter(this, mutableListOf())
         notesListView.adapter = adapter
 
         addNoteButton.setOnClickListener {
@@ -90,35 +90,47 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        renderNotes()
+        if (!notesRepository.isUnlocked()) {
+            showBiometricPromptIfNeeded()
+        } else {
+            renderNotes()
+        }
     }
 
     private fun showBiometricPromptIfNeeded() {
+        if (promptInProgress || notesRepository.isUnlocked()) return
+
         val biometricManager = BiometricManager.from(this)
-        val authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL
+        val authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG
 
         when (biometricManager.canAuthenticate(authenticators)) {
             BiometricManager.BIOMETRIC_SUCCESS -> {
+                promptInProgress = true
                 val executor = ContextCompat.getMainExecutor(this)
                 val promptInfo = BiometricPrompt.PromptInfo.Builder()
                     .setTitle(getString(R.string.unlock_title))
                     .setSubtitle(getString(R.string.unlock_subtitle))
+                    .setNegativeButtonText("Cancel")
                     .setAllowedAuthenticators(authenticators)
+                    .setConfirmationRequired(false)
                     .build()
 
                 val biometricPrompt = BiometricPrompt(this, executor, object : BiometricPrompt.AuthenticationCallback() {
                     override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                        promptInProgress = false
                         notesRepository.setUnlocked(true)
                         renderNotes()
                     }
 
                     override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                        promptInProgress = false
                         Toast.makeText(this@MainActivity, "Authentication is unavailable or was rejected. $errString", Toast.LENGTH_LONG).show()
                         notesRepository.setUnlocked(true)
                         renderNotes()
                     }
 
                     override fun onAuthenticationFailed() {
+                        promptInProgress = false
                         Toast.makeText(this@MainActivity, "Authentication failed. Please try again.", Toast.LENGTH_SHORT).show()
                     }
                 })
@@ -126,9 +138,10 @@ class MainActivity : AppCompatActivity() {
                 biometricPrompt.authenticate(promptInfo)
             }
             else -> {
+                promptInProgress = false
                 Toast.makeText(
                     this,
-                    "Biometric or device lock is not available. Continuing without a biometric gate.",
+                    "Biometric authentication is not available. Continuing without the biometric gate.",
                     Toast.LENGTH_LONG
                 ).show()
                 notesRepository.setUnlocked(true)
