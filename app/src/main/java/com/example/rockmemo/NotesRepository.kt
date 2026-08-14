@@ -29,11 +29,22 @@ class NotesRepository(context: Context) {
 
         for (index in 0 until array.length()) {
             val item = array.getJSONObject(index)
+            val id = item.getString("id")
+            val text = item.optString("text", "")
+            val title = if (item.has("title")) {
+                item.optString("title", "")
+            } else {
+                // derive title from first line of text (fallback)
+                text.lineSequence().firstOrNull()?.take(40) ?: ""
+            }
+            val createdAt = item.optLong("createdAt", 0L)
+
             notes.add(
                 Note(
-                    id = item.getString("id"),
-                    text = item.getString("text"),
-                    createdAt = item.optLong("createdAt", 0L)
+                    id = id,
+                    title = title,
+                    text = text,
+                    createdAt = createdAt
                 )
             )
         }
@@ -41,15 +52,27 @@ class NotesRepository(context: Context) {
         return notes.sortedByDescending { it.createdAt }
     }
 
-    fun addNote(text: String) {
+    fun addNote(title: String, text: String) {
         val notes = loadNotes().toMutableList()
         notes.add(
             Note(
                 id = UUID.randomUUID().toString(),
+                title = title,
                 text = text,
                 createdAt = System.currentTimeMillis()
             )
         )
+        saveNotes(notes)
+    }
+
+    // convenience for backward compatibility
+    fun addNote(text: String) {
+        val title = text.lineSequence().firstOrNull()?.take(40) ?: ""
+        addNote(title, text)
+    }
+
+    fun updateNote(id: String, title: String, text: String) {
+        val notes = loadNotes().map { if (it.id == id) it.copy(title = title, text = text) else it }
         saveNotes(notes)
     }
 
@@ -63,6 +86,7 @@ class NotesRepository(context: Context) {
         notes.forEach { note ->
             JSONObject().apply {
                 put("id", note.id)
+                put("title", note.title)
                 put("text", note.text)
                 put("createdAt", note.createdAt)
             }.let(array::put)

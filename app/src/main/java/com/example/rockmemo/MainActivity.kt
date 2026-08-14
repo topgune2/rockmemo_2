@@ -1,5 +1,6 @@
 package com.example.rockmemo
 
+import android.content.Intent
 import android.os.Bundle
 import android.text.InputType
 import android.widget.ArrayAdapter
@@ -23,6 +24,10 @@ class MainActivity : AppCompatActivity() {
     private val noteEntries = mutableListOf<Note>()
     private lateinit var adapter: ArrayAdapter<String>
 
+    companion object {
+        const val EXTRA_NOTE_ID = "note_id"
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -32,28 +37,60 @@ class MainActivity : AppCompatActivity() {
         notesListView = findViewById(R.id.notesList)
         addNoteButton = findViewById(R.id.fabAddNote)
 
-        val versionName = "1.0"
-        val parts = versionName.split(".", limit = 2)
-        val major = parts.getOrElse(0) { "0" }
-        val minor = parts.getOrElse(1) { "0" }
-        versionText.text = "Version $versionName\nMain: $major / Minor: $minor"
+        val versionName = "1.1"
+        versionText.text = "Version $versionName"
 
-        adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, mutableListOf())
+        adapter = ArrayAdapter(this, R.layout.note_list_item, mutableListOf())
         notesListView.adapter = adapter
 
         addNoteButton.setOnClickListener {
-            showAddNoteDialog()
+            showAddTitleDialog()
+        }
+
+        notesListView.setOnItemClickListener { _, _, position, _ ->
+            val selected = noteEntries[position]
+            val intent = Intent(this, NoteDetailActivity::class.java)
+            intent.putExtra(EXTRA_NOTE_ID, selected.id)
+            startActivity(intent)
         }
 
         notesListView.setOnItemLongClickListener { _, _, position, _ ->
             val selected = noteEntries[position]
-            noteEntries.removeAt(position)
-            notesRepository.deleteNote(selected.id)
-            renderNotes()
+            AlertDialog.Builder(this)
+                .setTitle(selected.title.ifEmpty { "Note" })
+                .setItems(arrayOf("Edit", "Delete", "Cancel")) { dialog, which ->
+                    when (which) {
+                        0 -> {
+                            // Edit
+                            val intent = Intent(this, NoteDetailActivity::class.java)
+                            intent.putExtra(EXTRA_NOTE_ID, selected.id)
+                            startActivity(intent)
+                        }
+                        1 -> {
+                            // Confirm delete
+                            AlertDialog.Builder(this)
+                                .setTitle("Delete note")
+                                .setMessage("Do you really want to delete this note?")
+                                .setPositiveButton("Delete") { _, _ ->
+                                    notesRepository.deleteNote(selected.id)
+                                    renderNotes()
+                                }
+                                .setNegativeButton("Cancel", null)
+                                .show()
+                        }
+                        else -> dialog.dismiss()
+                    }
+                }
+                .show()
             true
         }
 
         showBiometricPromptIfNeeded()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        renderNotes()
     }
 
     private fun showBiometricPromptIfNeeded() {
@@ -94,24 +131,27 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun showAddNoteDialog() {
+    private fun showAddTitleDialog() {
         val input = EditText(this).apply {
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
-            setSingleLine(false)
+            inputType = InputType.TYPE_CLASS_TEXT
+            setSingleLine(true)
         }
 
         AlertDialog.Builder(this)
-            .setTitle("Add Note")
+            .setTitle("New Note")
+            .setMessage("Enter a title for the note:")
             .setView(input)
-            .setPositiveButton("Save") { _, _ ->
-                val text = input.text.toString().trim()
-                if (text.isEmpty()) {
-                    Toast.makeText(this, "Note cannot be empty.", Toast.LENGTH_SHORT).show()
-                    return@setPositiveButton
+            .setPositiveButton("Create") { _, _ ->
+                val title = input.text.toString().trim()
+                // create note with empty body and open editor
+                notesRepository.addNote(title, "")
+                // open the newly created note (it's the most recent)
+                val created = notesRepository.loadNotes().firstOrNull()
+                created?.let {
+                    val intent = Intent(this, NoteDetailActivity::class.java)
+                    intent.putExtra(EXTRA_NOTE_ID, it.id)
+                    startActivity(intent)
                 }
-
-                notesRepository.addNote(text)
-                renderNotes()
             }
             .setNegativeButton("Cancel", null)
             .show()
@@ -122,7 +162,9 @@ class MainActivity : AppCompatActivity() {
         noteEntries.addAll(notesRepository.loadNotes())
 
         adapter.clear()
-        val values = noteEntries.map { note -> note.text }
+        val values = noteEntries.map { note ->
+            if (note.title.isNotEmpty()) note.title else note.text.lineSequence().firstOrNull() ?: "(empty)"
+        }
         adapter.addAll(values)
         adapter.notifyDataSetChanged()
     }
