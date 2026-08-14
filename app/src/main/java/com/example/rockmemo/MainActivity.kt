@@ -95,7 +95,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun showBiometricPromptIfNeeded() {
         val biometricManager = BiometricManager.from(this)
-        val authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.DEVICE_CREDENTIAL
+        val authenticators = BiometricManager.Authenticators.BIOMETRIC_STRONG
 
         when (biometricManager.canAuthenticate(authenticators)) {
             BiometricManager.BIOMETRIC_SUCCESS -> {
@@ -113,7 +113,7 @@ class MainActivity : AppCompatActivity() {
                     }
 
                     override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-                        Toast.makeText(this@MainActivity, "Authentication error: $errString", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(this@MainActivity, "Biometric authentication is unavailable or was rejected. $errString", Toast.LENGTH_LONG).show()
                         finish()
                     }
 
@@ -125,8 +125,12 @@ class MainActivity : AppCompatActivity() {
                 biometricPrompt.authenticate(promptInfo)
             }
             else -> {
-                notesRepository.setUnlocked(true)
-                renderNotes()
+                Toast.makeText(
+                    this,
+                    "Biometric authentication is not available on this device. Please enable fingerprint or face unlock and try again.",
+                    Toast.LENGTH_LONG
+                ).show()
+                finish()
             }
         }
     }
